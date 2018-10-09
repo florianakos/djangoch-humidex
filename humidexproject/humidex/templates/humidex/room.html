@@ -1,0 +1,222 @@
+<!-- chat/templates/chat/room.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>Humidex Room</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://code.jquery.com/mobile/1.4.5/jquery.mobile-1.4.5.min.css">
+    <script src="https://code.jquery.com/jquery-1.11.3.min.js"></script>
+    <script src="https://code.jquery.com/mobile/1.4.5/jquery.mobile-1.4.5.min.js"></script>
+    <script src="http://www.chartjs.org/dist/2.7.2/Chart.bundle.js"></script>
+    <script src="http://www.chartjs.org/samples/latest/utils.js"></script>
+</head>
+<body> 
+    <div class="slidecontainer">
+        <div data-role="main" class="ui-content">
+            <p> Below you can signal the level of comfort in your room!</p>
+            <textarea readonly id="chat-log" cols="60" rows="13"></textarea><br/>
+            <p id=userName>NAME: </p> <input id="chat-message-input" type="text" size="100"/><br/>
+            <input id="chat-message-submit" type="button" value="Send"/>
+            <input type="range" name="points" value="5" min="0" max="10" id="comfortLevel" class="slider" data-show-value="true">
+            <p> Current Room Average: </p>
+            <div>
+                <canvas id="canvas"></canvas>
+            </div>   
+        </div>
+    </div>
+</body>
+ <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+    window.chartColors = {
+        red: 'rgb(255, 99, 132)',
+        orange: 'rgb(255, 159, 64)',
+        yellow: 'rgb(255, 205, 86)',
+        green: 'rgb(75, 192, 192)',
+        blue: 'rgb(54, 162, 235)',
+        purple: 'rgb(153, 102, 255)',
+        grey: 'rgb(231,233,237)'
+    };
+    window.currentPos = 0;
+    var config = {
+        type: 'line',
+        data: {
+            datasets: [{
+                backgroundColor: window.chartColors.red,
+                borderColor: window.chartColors.red,
+                label: 'comfort index level',
+
+                data: [],
+                    fill: false,
+                }]
+            },
+            options: {
+                responsive: true,
+                title: {
+                    display: true,
+                    text: 'Room: [{{ room_name_json }}]'
+                },
+                tooltips: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                hover: {
+                    mode: 'nearest',
+                    intersect: true
+                },
+                scales: {
+                    xAxes: [{
+                        display: true,
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Time'
+                        }
+                    }],
+                    yAxes: [{
+                        display: true,
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'Average Index'
+                        }
+                    }]
+                }
+            }
+        };
+
+    window.onload = function() {
+           var ctx = document.getElementById('canvas').getContext('2d');
+           window.myLine = new Chart(ctx, config);
+    };
+  
+
+    var roomName = {{ room_name_json }};
+    var chatSocket = new WebSocket('ws://' + window.location.host +'/ws/humidex/' + roomName + '/');
+    chatSocket.onmessage = function(e) {
+        var data = JSON.parse(e.data);
+        var msg_type = data['msg_type'];
+
+        if (msg_type === "user_feedback_response") {
+            var message = data['message'];
+            if (message !== "") {
+                document.querySelector('#chat-log').value += (message + '\n');
+                document.querySelector('#chat-log').scrollTop = document.querySelector('#chat-log').scrollHeight;
+            }
+        }
+        
+        var avg = data['avg'];
+
+        config.data.labels.push(window.currentPos);
+        config.data.datasets.forEach(function(dataset) {
+            dataset.data.push(avg.value__avg);
+            console.log(avg.value__avg);
+        });
+        window.myLine.update();
+        window.currentPos += 1;       
+    };
+
+    chatSocket.onclose = function(e) {
+        console.error('Chat socket closed unexpectedly');
+    };
+
+    document.querySelector('#chat-message-input').focus();
+    document.querySelector('#chat-message-input').onkeyup = function(e) {
+        if (e.keyCode === 13) {  // enter, return
+            document.querySelector('#chat-message-submit').click();
+        }
+    };
+
+
+    function periodic_query() {
+        chatSocket.send(JSON.stringify({
+            'message': 'query',
+            'msg_type': 'periodic_query'
+        }));
+    }
+    var interval = setInterval(periodic_query, 5000);
+
+    document.querySelector('#chat-message-submit').onclick = function(e) {
+        var messageInputDom = document.querySelector('#chat-message-input');
+        var message = messageInputDom.value;
+        var level = document.getElementById("comfortLevel").value;
+        
+        if (message == "") {
+            chatSocket.send(JSON.stringify({
+                'message': "",
+                'msg_type': 'user_feedback',
+                'measurement': level
+            }));
+        } else {
+            chatSocket.send(JSON.stringify({
+                'message': userName + message,
+                'msg_type': 'user_feedback',
+                'measurement': level
+            }));
+        }
+
+
+        messageInputDom.value = "";
+    };
+
+    var userName;
+    function myFunction() {
+        
+        var person = prompt("Please enter your name (empty=Anonymous):", "");
+        if (person == null || person == "") {
+            userName = "Anonymous: ";
+        } else {
+            userName = person + ": ";
+        }
+    }
+
+    myFunction();
+    document.querySelector('#userName').innerHTML = "Message from " + userName;
+
+    </script>
+<style>
+textarea.ui-input-text { 
+    height: inherit !important
+}
+.slidecontainer {
+    width: 60%;
+}
+
+.slider {
+    -webkit-appearance: none;
+    width: 30%;
+    height: 25px;
+    background: #d3d3d3;
+    outline: none;
+    opacity: 0.7;
+    -webkit-transition: .2s;
+    transition: opacity .2s;
+}
+
+.slider:hover {
+    opacity: 1;
+}
+
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 25px;
+    height: 25px;
+    background: #4CAF50;
+    cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+    width: 25px;
+    height: 25px;
+    background: #4CAF50;
+    cursor: pointer;
+}
+.dot {
+    height: 25px;
+    width: 25px;
+    background-color: #bbb;
+    border-radius: 50%;
+    display: inline-block;
+
+
+</style>
+</html>
